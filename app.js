@@ -30,6 +30,10 @@ function symbolsFrom(text) { // returns [{s, sec}]
   return out;
 }
 function ingest(key, text) { const l = symbolsFrom(text); S.lists[key] = l.map(x => x.s); l.forEach(x => { if (x.sec) S.sector[x.s] = x.sec; }); return l.length; }
+function ingestCompact(key, str) {
+  const l = str.split('\n').filter(Boolean).map(x => { const [s, sec] = x.split('|'); return { s, sec: sec || '' } });
+  S.lists[key] = l.map(x => x.s); l.forEach(x => { if (x.sec && !S.sector[x.s]) S.sector[x.s] = x.sec; });
+}
 function guessKey(name, dflt) { const n = name.toLowerCase();
   if (/equity_l|allcash|all.?cash/.test(n)) return 'allcash'; if (/mktlots|fno|f&o|lot/.test(n)) return 'fno';
   if (/smallcap.?250/.test(n)) return 'smallcap250'; if (/midsmall/.test(n)) return 'midsmall400'; if (/(large)?midcap.?250/.test(n)) return 'midcap250';
@@ -38,6 +42,7 @@ async function loadLists() {
   for (const [k] of UNI) {
     const saved = store.get('csv_' + k); let ok = false;
     if (saved) { ingest(k, saved); ok = true }
+    else if (window.EMBED && EMBED[k]) { ingestCompact(k, EMBED[k]); ok = true }
     else try { const r = await fetch('data/' + k + '.csv', { cache: 'no-cache' }); if (r.ok) { const t = await r.text(); if (ingest(k, t)) ok = true } } catch { }
   }
   renderUni();
