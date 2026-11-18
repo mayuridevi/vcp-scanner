@@ -70,19 +70,26 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => { S.tab = t.dat
 const RANGE = { D: ['1d', '1y'], W: ['1wk', '5y'], M: ['1mo', '10y'] };
 function proxied(url, mode) { const w = $('worker').value.trim().replace(/\/$/, '');
   if (mode === 'worker' && w) return w + '/?u=' + encodeURIComponent(url);
+  if (mode === 'codetabs') return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url);
   if (mode === 'allorigins') return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
   return 'https://corsproxy.io/?url=' + encodeURIComponent(url); }
+let lastGood = null, lastErr = '';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function bars(sym, tf) {
-  const [iv, rg] = RANGE[tf], url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '.NS?interval=' + iv + '&range=' + rg;
-  const first = $('proxy').value, order = [first, ...['worker', 'corsproxy', 'allorigins'].filter(x => x !== first && (x !== 'worker' || $('worker').value.trim()))];
+  const [iv, rg] = RANGE[tf], w = $('worker').value.trim();
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '.NS?interval=' + iv + '&range=' + rg;
+  const order = [...new Set([lastGood, $('proxy').value, 'worker', 'corsproxy', 'allorigins', 'codetabs'].filter(Boolean))].filter(x => x !== 'worker' || w);
   let err;
-  for (const m of order) { try {
-      const r = await fetch(proxied(url, m)); if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json(), d = j.chart.result && j.chart.result[0]; if (!d) throw new Error('no data');
-      const q = d.indicators.quote[0], out = [];
-      d.timestamp.forEach((t, i) => { if (q.close[i] != null && q.high[i] != null && q.low[i] != null) out.push({ t, o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume[i] || 0 }) });
-      return out;
-    } catch (e) { err = e } }
+  for (let round = 0; round < 2; round++) {
+    for (const m of order) { try {
+        const r = await fetch(proxied(url, m)); if (!r.ok) throw new Error('HTTP ' + r.status + ' (' + m + ')');
+        const j = await r.json(), d = j.chart && j.chart.result && j.chart.result[0]; if (!d) throw new Error('no data (' + m + ')');
+        const q = d.indicators.quote[0], out = [];
+        d.timestamp.forEach((t, i) => { if (q.close[i] != null && q.high[i] != null && q.low[i] != null) out.push({ t, o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume[i] || 0 }) });
+        lastGood = m; return out;
+      } catch (e) { err = e; lastErr = e.message; await sleep(/429/.test(e.message) ? 1200 : 250); } }
+    await sleep(1500);
+  }
   throw err;
 }
 
@@ -97,9 +104,9 @@ async function scan() {
       catch { fail++ }
       done++; $('pb').style.width = (done / syms.length * 100) + '%'; $('msg').textContent = done + '/' + syms.length + (fail ? ' · ' + fail + ' failed' : '');
       if (done % 10 === 0) render(); } };
-  await Promise.all(Array.from({ length: 6 }, worker));
+  await Promise.all(Array.from({ length: 3 }, worker));
   $('go').disabled = false; $('stop').hidden = true; render();
-  $('msg').textContent = (S.stop ? 'Stopped. ' : 'Done. ') + done + ' scanned' + (fail ? ', ' + fail + ' failed (try another proxy)' : '') + '.';
+  $('msg').textContent = (S.stop ? 'Stopped. ' : 'Done. ') + done + ' scanned' + (fail ? ', ' + fail + ' failed. Last error: ' + lastErr : '') + '.';
   $('stat').textContent = new Date().toLocaleTimeString();
 }
 $('go').onclick = scan; $('stop').onclick = () => S.stop = true;
